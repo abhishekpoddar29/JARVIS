@@ -1,5 +1,5 @@
-from tools.base import BaseTool, ToolResult
 import random
+from tools.base import BaseTool, ToolResult
 
 class CustomJokeTool(BaseTool):
     name: str = "custom_joke_tool"
@@ -9,8 +9,9 @@ class CustomJokeTool(BaseTool):
         jokes = [
             "Why do programmers prefer dark mode? Because light attracts bugs.",
             "There are 10 types of people in the world: those who understand binary, and those who don't.",
-            "Debugging: Removing the needles from the haystack, then realizing the haystack was the needle.",
-            "Why was the JavaScript developer sad? Because he didn't Node how to Express himself."
+            "Debugging: Removing the needles from the haystack, only to realize the haystack was never there.",
+            "Why was the JavaScript developer sad? Because he didn't Node how to Express himself.",
+            "How many programmers does it take to change a light bulb? None, that's a hardware problem."
         ]
         joke = random.choice(jokes)
         return ToolResult(ok=True, content=joke, data={})
