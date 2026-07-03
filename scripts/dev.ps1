@@ -1,0 +1,13 @@
+$ErrorActionPreference = "Stop"
+
+Write-Host "Start the backend in one terminal:"
+Write-Host "  cd backend"
+Write-Host "  python -m venv .venv"
+Write-Host "  .\.venv\Scripts\Activate.ps1"
+Write-Host "  pip install -r requirements.txt"
+Write-Host "  uvicorn main:app --reload --host 127.0.0.1 --port 8000"
+Write-Host ""
+Write-Host "Start the frontend in another terminal:"
+Write-Host "  cd frontend"
+Write-Host "  npm install"
+Write-Host "  npm run dev"
