@@ -1,12 +1,9 @@
+from tools.base import BaseTool, ToolResult
 import uuid
-from tools.base import BaseTool
 
-class CustomUUIDGeneratorTool(BaseTool):
-    name = "custom_uuid_generator_tool"
-    description = "Generates a random UUID (Universally Unique Identifier)."
+class CustomUUIDGenerator(BaseTool):
+    name: str = "custom_uuid_generator"
+    description: str = "Generates a random UUID."
 
-    def __init__(self):
-        super().__init__()
-
-    def run(self):
-        return str(uuid.uuid4())
+    async def run(self, **kwargs) -> ToolResult:
+        return ToolResult(ok=True, content=str(uuid.uuid4()), data={})
