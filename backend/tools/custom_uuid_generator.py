@@ -1,16 +1,12 @@
 import uuid
-from pydantic import BaseModel, Field
 from tools.base import BaseTool
 
-class CustomUuidGeneratorToolSchema(BaseModel):
-    """Schema for CustomUuidGeneratorTool."""
-    pass
+class CustomUUIDGeneratorTool(BaseTool):
+    name = "custom_uuid_generator_tool"
+    description = "Generates a random UUID (Universally Unique Identifier)."
 
-class CustomUuidGeneratorTool(BaseTool):
-    name: str = "custom_uuid_generator_tool"
-    description: str = "Generates a random UUID and returns it."
-    args_schema: type[BaseModel] = CustomUuidGeneratorToolSchema
+    def __init__(self):
+        super().__init__()
 
-    def _run(self) -> str:
-        """Generates and returns a random UUID."""
+    def run(self):
         return str(uuid.uuid4())
