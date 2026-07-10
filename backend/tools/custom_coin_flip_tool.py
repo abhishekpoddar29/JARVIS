@@ -7,4 +7,4 @@ class CustomCoinFlipTool(BaseTool):
 
     async def run(self, **kwargs) -> ToolResult:
         result = random.choice(["Heads", "Tails"])
-        return ToolResult(ok=True, content=result, data={"result": result})
+        return ToolResult(ok=True, content=f"The coin landed on: {result}", data={"result": result})
