@@ -11,3 +11,5 @@ dist/
 *.log
 data/
 exports/
+
+/backend/auth/credentials.json
