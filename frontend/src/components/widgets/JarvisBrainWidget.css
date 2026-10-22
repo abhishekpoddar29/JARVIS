@@ -1,0 +1,422 @@
+.jarvis-brain-widget {
+  position: fixed;
+  left: 20px;
+  bottom: 22px;
+  z-index: 34;
+  display: flex;
+  width: 320px;
+  height: 242px;
+  min-width: 270px;
+  min-height: 205px;
+  max-width: min(660px, calc(100vw - 40px));
+  max-height: min(540px, calc(100vh - 98px));
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(75, 220, 235, 0.25);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(7, 24, 30, 0.92), rgba(4, 15, 20, 0.88)),
+    radial-gradient(circle at 50% 42%, rgba(42, 215, 235, 0.13), transparent 62%);
+  box-shadow:
+    inset 0 0 32px rgba(53, 217, 235, 0.035),
+    0 18px 46px rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(14px);
+  transition: width 180ms ease, height 180ms ease, opacity 180ms ease, box-shadow 180ms ease;
+}
+
+.jarvis-brain-widget::before {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-image:
+    linear-gradient(rgba(87, 223, 237, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(87, 223, 237, 0.035) 1px, transparent 1px);
+  background-size: 22px 22px;
+  content: "";
+  mask-image: linear-gradient(to bottom, black, transparent 94%);
+  pointer-events: none;
+}
+
+.jarvis-brain-widget.is-minimized {
+  width: 188px;
+  min-width: 188px;
+  height: 42px;
+  min-height: 42px;
+}
+
+
+.jarvis-brain-header {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  height: 41px;
+  flex: 0 0 41px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px 0 13px;
+  border-bottom: 1px solid rgba(86, 218, 232, 0.13);
+  color: rgba(156, 238, 246, 0.84);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  user-select: none;
+}
+
+.jarvis-brain-widget.is-minimized .jarvis-brain-header {
+  border-bottom: 0;
+}
+
+.jarvis-brain-header > div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.jarvis-brain-header small {
+  color: rgba(137, 204, 211, 0.48);
+  font-size: 7px;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.jarvis-brain-controls {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  margin-right: 12px;
+}
+
+.jarvis-brain-widget.is-minimized .jarvis-brain-controls {
+  margin-right: 0;
+}
+
+.jarvis-brain-resize-handle {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  z-index: 8;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-top: 2px solid rgba(116, 234, 244, 0.7);
+  border-right: 2px solid rgba(116, 234, 244, 0.7);
+  border-radius: 0 13px 0 0;
+  background:
+    linear-gradient(225deg, rgba(95, 230, 242, 0.2), transparent 58%);
+  cursor: nesw-resize;
+  touch-action: none;
+}
+
+.jarvis-brain-resize-handle::before,
+.jarvis-brain-resize-handle::after {
+  position: absolute;
+  top: 5px;
+  right: 4px;
+  width: 7px;
+  height: 1px;
+  background: rgba(173, 244, 250, 0.68);
+  content: "";
+  transform: rotate(-45deg);
+  transform-origin: center;
+}
+
+.jarvis-brain-resize-handle::after {
+  top: 9px;
+  right: 2px;
+  width: 11px;
+  opacity: 0.62;
+}
+
+.jarvis-brain-resize-handle:hover {
+  border-color: rgba(211, 253, 255, 0.96);
+  filter: drop-shadow(0 0 6px rgba(91, 230, 242, 0.62));
+}
+
+body.jarvis-brain-resizing,
+body.jarvis-brain-resizing * {
+  cursor: nesw-resize !important;
+  user-select: none !important;
+}
+
+.jarvis-brain-widget.is-maximized {
+  box-shadow:
+    inset 0 0 38px rgba(53, 217, 235, 0.05),
+    0 22px 58px rgba(0, 0, 0, 0.38),
+    0 0 30px rgba(42, 215, 235, 0.05);
+}
+
+.jarvis-brain-controls button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  place-items: center;
+  border: 1px solid rgba(89, 223, 237, 0.13);
+  border-radius: 7px;
+  background: rgba(72, 205, 221, 0.05);
+  color: rgba(183, 239, 245, 0.68);
+  cursor: pointer;
+}
+
+.jarvis-brain-controls button:hover {
+  border-color: rgba(89, 223, 237, 0.32);
+  color: #eaffff;
+}
+
+.jarvis-brain-controls button:focus-visible,
+.jarvis-brain-resize-handle:focus-visible {
+  outline: 1px solid rgba(130, 238, 247, 0.8);
+  outline-offset: 2px;
+}
+
+.jarvis-brain-signal {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: #56dfea;
+  box-shadow: 0 0 10px rgba(86, 223, 234, 0.8);
+  animation: jarvis-brain-beep 1.9s ease-in-out infinite;
+}
+
+.jarvis-brain-signal.tone-error { background: #ff6570; box-shadow: 0 0 12px rgba(255, 101, 112, 0.85); }
+.jarvis-brain-signal.tone-success { background: #73e9b9; box-shadow: 0 0 12px rgba(115, 233, 185, 0.85); }
+.jarvis-brain-signal.tone-flow,
+.jarvis-brain-signal.tone-activate,
+.jarvis-brain-signal.tone-boot { animation-duration: 0.75s; }
+
+.jarvis-brain-canvas {
+  position: relative;
+  z-index: 1;
+  min-height: 132px;
+  flex: 1 1 auto;
+  overflow: hidden;
+  background: radial-gradient(circle at center, rgba(51, 218, 234, 0.05), transparent 64%);
+}
+
+.jarvis-brain-canvas canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.jarvis-brain-canvas > span {
+  display: grid;
+  height: 100%;
+  place-items: center;
+  color: rgba(161, 224, 230, 0.55);
+  font: 10px ui-monospace, monospace;
+}
+
+.jarvis-brain-tooltip {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  z-index: 5;
+  max-width: calc(100% - 28px);
+  padding: 4px 8px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(91, 225, 238, 0.22);
+  border-radius: 6px;
+  background: rgba(2, 15, 20, 0.82);
+  box-shadow: 0 0 18px rgba(50, 219, 235, 0.08);
+  color: rgba(215, 250, 253, 0.88);
+  font: 8px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  letter-spacing: 0.08em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.jarvis-brain-widget footer {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  height: 30px;
+  flex: 0 0 30px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 12px;
+  border-top: 1px solid rgba(86, 218, 232, 0.1);
+  background: rgba(4, 13, 17, 0.42);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.jarvis-brain-widget footer span {
+  flex: 0 0 auto;
+  font-size: 8px;
+  letter-spacing: 0.12em;
+}
+
+.jarvis-brain-widget footer .online { color: #75e5ba; }
+.jarvis-brain-widget footer .offline { color: #ff737c; }
+
+.jarvis-brain-widget footer p {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: rgba(166, 222, 228, 0.68);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes jarvis-brain-beep {
+  0%, 100% { opacity: 0.42; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.22); }
+}
+
+@media (max-height: 850px) {
+  .jarvis-brain-widget {
+    width: 292px;
+    height: 214px;
+    bottom: 14px;
+  }
+}
+
+@media (max-width: 900px) {
+  .jarvis-brain-widget {
+    left: 12px;
+    bottom: 86px;
+    width: 270px;
+    max-width: calc(100vw - 24px);
+    opacity: 0.94;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jarvis-brain-signal { animation: none; }
+}
+
+body.jarvis-brain-resizing .jarvis-brain-widget {
+  transition: none;
+}
+
+.jarvis-brain-renderer {
+  position: absolute;
+  inset: 0;
+}
+
+.jarvis-brain-renderer canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+
+.jarvis-brain-renderer canvas:active {
+  cursor: grabbing;
+}
+
+.jarvis-brain-renderer > span {
+  display: grid;
+  height: 100%;
+  place-items: center;
+  color: rgba(161, 224, 230, 0.55);
+  font: 10px ui-monospace, monospace;
+}
+
+.jarvis-brain-view-controls {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px;
+  border: 1px solid rgba(91, 225, 238, 0.14);
+  border-radius: 8px;
+  background: rgba(2, 14, 19, 0.68);
+  box-shadow: 0 0 18px rgba(50, 219, 235, 0.045);
+  backdrop-filter: blur(7px);
+}
+
+.jarvis-brain-control-group {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.jarvis-brain-control-group + .jarvis-brain-control-group {
+  padding-left: 5px;
+  border-left: 1px solid rgba(91, 225, 238, 0.12);
+}
+
+.jarvis-brain-control-group > span {
+  margin-right: 1px;
+  color: rgba(133, 213, 220, 0.58);
+  font: 6px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  letter-spacing: 0.11em;
+}
+
+.jarvis-brain-view-controls button {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(93, 222, 235, 0.14);
+  border-radius: 5px;
+  background: rgba(78, 207, 221, 0.055);
+  color: rgba(205, 247, 250, 0.76);
+  font: 11px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  cursor: pointer;
+}
+
+.jarvis-brain-view-controls button:hover:not(:disabled) {
+  border-color: rgba(93, 222, 235, 0.34);
+  color: #efffff;
+}
+
+.jarvis-brain-view-controls button:disabled {
+  opacity: 0.28;
+  cursor: default;
+}
+
+.jarvis-brain-view-controls output {
+  min-width: 29px;
+  color: rgba(178, 233, 238, 0.72);
+  font: 7px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  text-align: center;
+}
+
+.jarvis-brain-view-controls .jarvis-brain-reset-view {
+  width: 20px;
+  margin-left: 1px;
+  color: rgba(119, 232, 242, 0.78);
+}
+
+.jarvis-brain-gesture-hint {
+  position: absolute;
+  right: 8px;
+  bottom: 7px;
+  z-index: 4;
+  color: rgba(130, 204, 211, 0.34);
+  font: 6px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  letter-spacing: 0.08em;
+  pointer-events: none;
+  user-select: none;
+}
+
+.jarvis-brain-view-controls button:focus-visible {
+  outline: 1px solid rgba(130, 238, 247, 0.8);
+  outline-offset: 1px;
+}
+
+@media (max-width: 520px) {
+  .jarvis-brain-view-controls {
+    transform: scale(0.9);
+    transform-origin: top left;
+  }
+
+  .jarvis-brain-gesture-hint {
+    display: none;
+  }
+}

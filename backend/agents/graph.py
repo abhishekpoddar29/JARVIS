@@ -1,23 +1,29 @@
 """
 backend/agents/graph.py
 
-Wires graph_nodes into the actual LangGraph. This replaces the hand-rolled
-control flow currently inside main.py's websocket handler:
+Jarvis main orchestration graph.
 
-    Gemini call -> if tool_call: execute tool -> second Gemini call -> reply
-                -> else: reply directly
+Flow:
 
-with the equivalent graph:
+    START
+      -> memory_retrieval
+      -> personality
+      -> gemini                  planner / direct responder
+          -> finalize            when no tool work is required
+          -> tool                batched dispatcher
+              -> tool_response   aggregate + review
+                  -> tool        when another batch is required
+                  -> finalize    when the request is complete
 
-    START -> personality -> gemini --(tool_call?)--> tool -> tool_response -> finalize -> END
-                                  \\----------------------------------------/
-                                   (no tool_call)----------> finalize -> END
+The graph stays intentionally small. Parallelism, duplicate protection,
+approval safety, and bounded multi-round execution live inside graph_nodes.py.
+Existing tools and specialist subgraphs remain unchanged.
 """
 
 from __future__ import annotations
 
-from langgraph.graph import END, START, StateGraph
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import END, START, StateGraph
 
 from agents.graph_nodes import (
     finalize_node,
@@ -31,11 +37,22 @@ from agents.graph_nodes import (
 from agents.graph_state import JarvisState
 
 
+def route_after_tool_response(state: JarvisState) -> str:
+    """Continue only when the reviewer scheduled another tool batch."""
+    if state.get("final_reply"):
+        return "finalize"
+
+    pending = state.get("tool_calls") or []
+    if not pending and state.get("tool_call"):
+        pending = [state["tool_call"]]
+
+    return "tool" if pending else "finalize"
+
+
 def build_graph():
     graph = StateGraph(JarvisState)
 
-
-    graph.add_node("memory_retrieval",memory_retrieval_node)
+    graph.add_node("memory_retrieval", memory_retrieval_node)
     graph.add_node("personality", personality_node)
     graph.add_node("gemini", gemini_node)
     graph.add_node("tool", tool_node)
@@ -45,23 +62,24 @@ def build_graph():
     graph.add_edge(START, "memory_retrieval")
     graph.add_edge("memory_retrieval", "personality")
     graph.add_edge("personality", "gemini")
+
     graph.add_conditional_edges(
         "gemini",
         route_after_gemini,
         {"tool": "tool", "done": "finalize"},
     )
+
     graph.add_edge("tool", "tool_response")
+
     graph.add_conditional_edges(
         "tool_response",
-        lambda state: "tool" if state.get("tool_call") else "finalize",
-        {"tool":"tool" , "finalize":"finalize"}
+        route_after_tool_response,
+        {"tool": "tool", "finalize": "finalize"},
     )
+
     graph.add_edge("finalize", END)
-    checkpointer=MemorySaver()
 
-    return graph.compile(checkpointer=checkpointer)
+    return graph.compile(checkpointer=MemorySaver())
 
 
-# Compiled once at import time — main.py imports `jarvis_graph` and calls
-# `await jarvis_graph.ainvoke(initial_state)` per message.
 jarvis_graph = build_graph()

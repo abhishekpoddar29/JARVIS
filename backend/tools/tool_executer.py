@@ -29,12 +29,23 @@ class ToolExecutor:
         try:
             result = None
             
-            # F16/MCP FIX: Handle both custom tools and dynamic MCP tools safely.
-            try:
-                # 1. Try calling as a custom Jarvis tool (expects **kwargs, returns ToolResult)
-                result = await tool.run(**tool_call.arguments)
-            except TypeError:
-                # 2. Fallback for standard LangChain / MCP tools (expect 'tool_input', return string)
+            # F16/MCP FIX: Handle custom tools and MCP tools differently
+            from tools.base import BaseTool
+            
+            if isinstance(tool, BaseTool):
+                # 1. Custom Jarvis tool (expects **kwargs, returns ToolResult)
+                try:
+                    result = await tool.run(**tool_call.arguments)
+                except TypeError as e:
+                    # Gemini hallucinated an invalid argument
+                    return ToolExecutionResult(
+                        tool=tool.name,
+                        success=False,
+                        content=f"Invalid arguments for {tool.name}: {e}",
+                        error=str(e)
+                    )
+            else:
+                # 2. Standard LangChain / MCP tool (expect 'tool_input', return string)
                 if hasattr(tool, 'arun'):
                     output_str = await tool.arun(tool_input=tool_call.arguments)
                     result = ToolResult(ok=True, content=str(output_str), data={})

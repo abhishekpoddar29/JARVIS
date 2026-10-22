@@ -1,21 +1,27 @@
 import { useState } from "react";
 import { ShieldCheck, X, Mail, Calendar, Send, CheckCircle2, Code } from "lucide-react";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import Editor from "react-simple-code-editor";
+import { highlight, languages } from "prismjs/components/prism-core";
+import "prismjs/components/prism-python";
+import "prism-themes/themes/prism-one-dark.css"; // A clean dark theme
 import type { ApprovalData } from "../types";
 
 interface ApprovalCardProps {
   data: ApprovalData;
-  onApprove: () => void;
+  onApprove: (editedCode?: string) => void; // Updated to accept edited code
   onReject: () => void;
 }
 
 export function ApprovalCard({ data, onApprove, onReject }: ApprovalCardProps) {
   const [status, setStatus] = useState<"pending" | "approved" | "rejected">("pending");
+  
+  // F17: State to hold the editable code
+  const [editedCode, setEditedCode] = useState(data.draft.code || "");
 
   const handleApprove = () => {
     setStatus("approved");
-    onApprove();
+    // Pass the edited code back. Only pass it if it's a self_modify action.
+    onApprove(data.action_type === "self_modify" ? editedCode : undefined);
   };
 
   const handleReject = () => {
@@ -62,15 +68,21 @@ export function ApprovalCard({ data, onApprove, onReject }: ApprovalCardProps) {
         ) : isSelfModify ? (
           <>
             <div className="approval-row"><strong>Filename:</strong> {draft.filename}</div>
-            <div className="approval-text" style={{ background: "rgba(0,0,0,0.3)", padding: "10px", borderRadius: "6px" }}>
-              <strong>Code:</strong><br />
-              <SyntaxHighlighter 
-                language="python" 
-                style={oneDark} 
-                customStyle={{ margin: 0, background: "transparent", padding: 0, fontSize: "12px" }}
-              >
-                {draft.code}
-              </SyntaxHighlighter>
+            <div className="approval-text" style={{ background: "rgba(0,0,0,0.3)", padding: "10px", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.05)" }}>
+              <strong>Code:</strong> (You can edit this before approving)<br />
+              <Editor
+                value={editedCode}
+                onValueChange={code => setEditedCode(code)}
+                highlight={code => highlight(code, languages.python, "python")}
+                padding={10}
+                style={{
+                  fontFamily: '"Fira Code", "Cascadia Code", monospace',
+                  fontSize: 12,
+                  minHeight: "150px",
+                  backgroundColor: "transparent",
+                  color: "#fff"
+                }}
+              />
             </div>
           </>
         ) : (

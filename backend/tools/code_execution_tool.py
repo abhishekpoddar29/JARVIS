@@ -3,7 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from agents.code_agent import code_agent
+from config import get_settings
 from tools.base import BaseTool, ToolResult
+
+settings = get_settings()
 
 
 class CodeExecutionTool(BaseTool):
@@ -15,10 +18,17 @@ class CodeExecutionTool(BaseTool):
         "calculations. Returns stdout, stderr, generated images, and downloadable files."
     )
 
-    async def run(self, task: str) -> ToolResult:  # type: ignore[override]
+    async def run(self, task: str, file_ref: str = None, **kwargs) -> ToolResult:  # type: ignore[override]
         try:
+            if not settings.enable_code_execution:
+                return ToolResult(
+                    ok=False,
+                    content="Code execution is disabled by ENABLE_CODE_EXECUTION.",
+                    data={},
+                )
+
             # Execute the code agent pipeline
-            result = await code_agent.execute(task=task)
+            result = await code_agent.execute(task=task, file_ref=file_ref)
 
             # Serialize file artifacts for frontend JSON transport
             # The frontend will prepend the API base URL to these download paths

@@ -1,19 +1,60 @@
 services:
-  backend:
-    build:
-      context: ./backend
-    env_file:
-      - .env
-    ports:
-      - "8000:8000"
-    command: uvicorn main:app --host 0.0.0.0 --port 8000
-
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
     volumes:
       - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    env_file:
+      - ./backend/.env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      TRACKING_REDIS_URL: redis://redis:6379/1
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      JARVIS_APP_TOKEN: ${JARVIS_APP_TOKEN:-}
+      JARVIS_AUTH_REQUIRED: ${JARVIS_AUTH_REQUIRED:-false}
+      ENABLE_SELF_MODIFY: ${ENABLE_SELF_MODIFY:-false}
+      ENABLE_MCP_FILESYSTEM: ${ENABLE_MCP_FILESYSTEM:-true}
+      ENABLE_CODE_EXECUTION: ${ENABLE_CODE_EXECUTION:-true}
+      ENABLE_WEB_SCRAPER: ${ENABLE_WEB_SCRAPER:-true}
+    ports:
+      - "8000:8000"
+    volumes:
+      - backend-data:/app/data
+      - backend-uploads:/app/uploads
+      - backend-exports:/app/exports
+      - backend-sandbox:/app/sandbox
+      - backend-engineering-work:/app/engineering_team_work
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      VITE_API_URL: http://127.0.0.1:8000
+      VITE_WS_URL: ws://127.0.0.1:8000/ws/chat
+      VITE_JARVIS_APP_TOKEN: ${JARVIS_APP_TOKEN:-}
+    ports:
+      - "5173:5173"
+    depends_on:
+      backend:
+        condition: service_healthy
 
 volumes:
   redis-data:
+  backend-data:
+  backend-uploads:
+  backend-exports:
+  backend-sandbox:
+  backend-engineering-work:

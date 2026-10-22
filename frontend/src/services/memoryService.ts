@@ -1,6 +1,9 @@
 // frontend/src/services/memoryService.ts
 
-const API_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000";
+import {
+  API_URL,
+  jarvisFetch,
+} from "./apiClient";
 
 export interface MemoryEntry {
   id: string;
@@ -16,18 +19,18 @@ export interface MemoryEntry {
 
 export const memoryService = {
   async getAllMemories(): Promise<MemoryEntry[]> {
-    const res = await fetch(`${API_URL}/api/memory`);
+    const res = await jarvisFetch(`${API_URL}/api/memory`);
     if (!res.ok) throw new Error("Failed to fetch memories");
     const data = await res.json();
     return data.memories;
   },
 
   async deleteMemory(id: string): Promise<void> {
-    await fetch(`${API_URL}/api/memory/${id}`, { method: "DELETE" });
+    await jarvisFetch(`${API_URL}/api/memory/${id}`, { method: "DELETE" });
   },
 
   async updateMemory(id: string, payload: Partial<MemoryEntry>): Promise<void> {
-    await fetch(`${API_URL}/api/memory/${id}`, {
+    await jarvisFetch(`${API_URL}/api/memory/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -35,7 +38,7 @@ export const memoryService = {
   },
   
   async triggerDistillation(): Promise<any> {
-    const res = await fetch(`${API_URL}/api/memory/distill`, { method: "POST" });
+    const res = await jarvisFetch(`${API_URL}/api/memory/distill`, { method: "POST" });
     return res.json();
   }
 };

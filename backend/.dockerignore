@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+data/
+exports/
+uploads/
+sandbox/
+engineering_team_work/
+node_modules/
+*.log
+.env

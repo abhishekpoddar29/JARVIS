@@ -1,19 +1,28 @@
-// frontend/src/App.tsx
-
 import { FormEvent, useMemo, useEffect, useRef, useState, useCallback, ChangeEvent } from "react";
-import { Send, Brain, Upload, Image as ImageIcon, X, Mic, MicOff } from "lucide-react";
+import { Send, Brain, Upload, Image as ImageIcon, X, Mic, MicOff, Menu, Paperclip } from "lucide-react";
 import { useJarvisSocket } from "./hooks/useJarvisSocket";
+import { useJarvisVoice } from "./hooks/useJarvisVoice";
 import { useOrb } from "./hooks/useOrb";
 import { JarvisOrb } from "./components/Orb/JarvisOrb";
 import { CodeBlock } from "./components/CodeBlock";
 import { MemoryViewer } from "./components/MemoryViewer";
 import { exportConversation } from "./services/exportService";
-import type { ChatMessage, OrbState } from "./types";
+import type { ChatMessage } from "./types";
 import ReactMarkdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { ApprovalCard } from "./components/ApprovalCard";
-import Vapi from "@vapi-ai/web"; // F16: Clean standard import (Requires Vite v5)
+import { HudStatusBar } from "./components/HudStatusBar";
+import { LiveLocationMap } from "./components/tracking/LiveLocationMap"
+import { TimeWeatherWidget } from "./components/widgets/TimeWeatherWidget"
+import { SystemLogsWidget } from "./components/widgets/SystemLogsWidget"
+import { MusicPlayerWidget } from "./components/widgets/MusicPlayerWidget";
+import { JarvisBrainWidget } from "./components/widgets/JarvisBrainWidget"
+import {
+  API_URL,
+  jarvisFetch,
+} from "./services/apiClient";
+
 
 const welcomeMessage: ChatMessage = {
   id: "welcome",
@@ -29,123 +38,149 @@ const resetMessage: ChatMessage = {
   createdAt: new Date().toISOString(),
 };
 
+
+// Reusable message renderer for both Focus View and History Drawer
+interface RenderMessageProps {
+  message: ChatMessage;
+  onApprove: (editedCode?: string) => void;
+  onReject: () => void;
+}
+
+
+const RenderMessage = ({
+  message,
+  onApprove,
+  onReject,
+}: RenderMessageProps) => (
+  <article className={`message ${message.role}`}>
+    <div className="message-role">
+      {message.role === "assistant" ? "Jarvis" : "You"}
+    </div>
+    <div className="message-content">
+      {message.image && (
+        <img src={message.image} alt="User attachment" className="message-image" />
+      )}
+      {message.approval_data && (
+        <ApprovalCard
+          data={message.approval_data}
+          onApprove={onApprove}
+          onReject={onReject}
+        />
+      )}
+      {message.code_result && <CodeBlock result={message.code_result} />}
+      {message.content && (
+        <ReactMarkdown
+          components={{
+            code({ node, inline, className, children, ...props }: any) {
+              const match = /language-(\w+)/.exec(className || "");
+              return !inline && match ? (
+                <SyntaxHighlighter
+                  style={oneDark}
+                  language={match[1]}
+                  PreTag="div"
+                  {...props}
+                >
+                  {String(children).replace(/\n$/, "")}
+                </SyntaxHighlighter>
+              ) : (
+                <code className={className} {...props}>{children}</code>
+              );
+            },
+          }}
+        >
+          {message.content}
+        </ReactMarkdown>
+      )}
+    </div>
+  </article>
+);
+
 export function App() {
   const [draft, setDraft] = useState("");
   const [pendingImage, setPendingImage] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [isMemoryOpen, setIsMemoryOpen] = useState(false);
-  const [voiceOrbState, setVoiceOrbState] = useState<OrbState | null>(null);
-  const [isVapiActive, setIsVapiActive] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false); // F17 UI: History drawer state
+  const [uploadedFile, setUploadedFile] = useState<string | null>(null);
+
   
   const chatPanelRef = useRef<HTMLElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const vapiRef = useRef<any>(null);
+  const csvFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await jarvisFetch(`${API_URL}/api/upload`, {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      setUploadedFile(data.filename);
+      setDraft(`Please analyze the uploaded file: ${data.filename}`);
+    } catch (err) {
+      alert("File upload failed.");
+    }
+    e.target.value = "";
+  };
+
 
   const {
     messages,
     sendMessage,
     clearMessages,
-    setMessages,
     orbState: rawOrbState,
     isConnected,
     connectionError,
     isLoadingSession,
     sendApproval,
     researchProgress,
+    trackingSession,
+    systemLogs,
+    stopTracking,
+    dismissTracking,
+    musicCommand,
+    sendMusicState,
+    sendVoiceMessage,
+    subscribeVoiceEvents,
+    workflowEvent,
   } = useJarvisSocket();
 
-  const { orbState, stateLabel } = useOrb({
+  const { orbState } = useOrb({
     rawState: rawOrbState,
     isConnected,
     isLoadingSession,
     hasError: !!connectionError,
   });
 
-  // Override orb state if voice is active
+  const isTrackingWidgetVisible = Boolean(
+    trackingSession?.visible,
+  );
+
+  const {
+    isActive: isVoiceActive,
+    isBusy: isVoiceBusy,
+    phase: voicePhase,
+    error: voiceError,
+    orbState: voiceOrbState,
+    toggle: toggleVoiceCall,
+  } = useJarvisVoice({
+    isSocketConnected: isConnected,
+    sendVoiceMessage,
+    subscribeVoiceEvents,
+  });
+
   const finalOrbState = voiceOrbState || orbState;
-
-  // F16: Initialize Vapi SDK
-  useEffect(() => {
-    const apiKey = import.meta.env.VITE_VAPI_API_KEY;
-    const assistantId = import.meta.env.VITE_VAPI_ASSISTANT_ID;
-
-    // DEBUG: This will print "undefined" if the .env file isn't loading
-    console.log("[VAPI DEBUG] API Key loaded:", apiKey ? "Yes" : "No"); 
-
-    if (!apiKey || !assistantId) {
-      console.error("[VAPI] Missing API Key or Assistant ID in frontend/.env");
-      return;
-    }
-
-    const vapi = new Vapi(apiKey);
-
-    vapiRef.current = vapi;
-
-    // Map Vapi events to Jarvis UI
-    vapi.on("call-start", () => {
-      setIsVapiActive(true);
-      setVoiceOrbState("listening");
-    });
-
-    vapi.on("call-end", () => {
-      setIsVapiActive(false);
-      setVoiceOrbState(null);
-    });
-
-    vapi.on("speech-start", () => {
-      setVoiceOrbState("listening");
-    });
-
-    vapi.on("speech-end", () => {
-      setVoiceOrbState("processing");
-    });
-
-    vapi.on("message", (message: any) => {
-      // F16 FIX: Only render USER transcripts to the UI.
-      // Assistant messages and Code Blocks are pushed directly via the WebSocket 
-      // by the backend so they render with rich UI (CodeBlocks, ApprovalCards).
-      if (message.type === "transcript" && message.isFinal && message.from === "user") {
-        const text = message.text || message.content;
-        if (text) {
-          setMessages((prev) => [...prev, {
-            id: crypto.randomUUID(),
-            role: "user",
-            content: text,
-            createdAt: new Date().toISOString()
-          }]);
-        }
-      }
-    });
-
-    vapi.on("error", (e: any) => {
-      console.error("[VAPI] Error:", e);
-      setIsVapiActive(false);
-      setVoiceOrbState(null);
-    });
-
-    // FIX: Do NOT return vapi.stop() here! React Strict Mode will unmount and remount
-    // the component on initial load, which would call stop() and instantly hang up the call.
-    // The user can hang up using the Mic button (toggleVoiceCall).
-  }, [setMessages]);
-
-  // F16: Start/Stop Voice Call
-  const toggleVoiceCall = useCallback(() => {
-    if (!vapiRef.current) {
-      console.error("[VAPI] Cannot start call: SDK is not initialized.");
-      return;
-    }
-    
-    if (isVapiActive) {
-      vapiRef.current.stop();
-    } else {
-      vapiRef.current.start(import.meta.env.VITE_VAPI_ASSISTANT_ID);
-    }
-  }, [isVapiActive]);
 
   useEffect(() => {
     const panel = chatPanelRef.current;
-    if (panel) panel.scrollTop = panel.scrollHeight;
-  }, [messages]);
+    if (panel && isHistoryOpen) panel.scrollTop = panel.scrollHeight;
+  }, [messages, isHistoryOpen]);
 
   const allMessages = useMemo(() => {
     if (isLoadingSession) return [];
@@ -153,16 +188,21 @@ export function App() {
     return messages;
   }, [messages, isLoadingSession]);
 
+  // Focus View shows the latest user and assistant messages.
+  const lastUserMsg = [...allMessages]
+    .reverse()
+    .find((message) => message.role === "user");
+  const lastAssistantMsg = [...allMessages]
+    .reverse()
+    .find((message) => message.role === "assistant");
+
   const handleExport = useCallback(async () => {
     if (isExporting || !isConnected) return;
     setIsExporting(true);
     try {
       const result = await exportConversation();
-      if (result.ok) {
-        clearMessages([resetMessage]);
-      } else {
-        console.error("Export failed:", result.error);
-      }
+      if (result.ok) clearMessages([resetMessage]);
+      else console.error("Export failed:", result.error);
     } finally {
       setIsExporting(false);
     }
@@ -201,6 +241,8 @@ export function App() {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+
     const message = draft.trim();
     if (!message && !pendingImage) return;
     sendMessage(message || "What is in this image?", pendingImage || undefined);
@@ -209,26 +251,92 @@ export function App() {
   }
 
   return (
-    <main className="app-shell" onDrop={handleDrop} onDragOver={handleDragOver}>
+    <main
+      className={`app-shell ${
+        isTrackingWidgetVisible ? "tracking-visible" : ""
+      }`}
+      onDrop={handleDrop}
+      onDragOver={handleDragOver}
+    >
+      <div className="jarvis-ambient-grid" aria-hidden="true" />
 
-      <JarvisOrb state={finalOrbState} />
+      <JarvisOrb
+        state={finalOrbState}
+        isSpeaking={finalOrbState === "speaking"}
+      />
 
-      <div className="state-label" aria-label={`Jarvis state: ${stateLabel}`}>
-        {stateLabel}
-      </div>
+      <aside
+        className="dashboard-left-rail"
+        aria-label="Jarvis information widgets"
+      >
+        <TimeWeatherWidget />
+        <SystemLogsWidget
+          logs={systemLogs}
+          isConnected={isConnected}
+        />
+      </aside>
+
+      <JarvisBrainWidget
+        event={workflowEvent}
+        isConnected={isConnected}
+        orbState={finalOrbState}
+        voicePhase={voicePhase}
+      />
+
+      {trackingSession?.visible && (
+        <LiveLocationMap
+          session={trackingSession}
+          isConnected={isConnected}
+          onStop={stopTracking}
+          onDismiss={dismissTracking}
+        />
+      )}
+
+      <MusicPlayerWidget
+        command={musicCommand}
+        trackingActive={isTrackingWidgetVisible}
+        onStateChange={sendMusicState}
+      />
 
       <MemoryViewer isOpen={isMemoryOpen} onClose={() => setIsMemoryOpen(false)} />
 
+      {/* F17 UI: History Drawer */}
+      <div className={`history-drawer ${isHistoryOpen ? 'open' : ''}`}>
+        <div className="drawer-header">
+          <h2>Session History</h2>
+          <button className="close-btn" onClick={() => setIsHistoryOpen(false)}><X size={18} /></button>
+        </div>
+        <section className="chat-panel" ref={chatPanelRef} aria-label="Conversation History">
+          {isLoadingSession ? (
+            <div className="session-loading">Restoring today's session...</div>
+          ) : (
+            allMessages.map((message) => (
+              <RenderMessage 
+                key={message.id} 
+                message={message} 
+                onApprove={(editedCode) => sendApproval(true, editedCode)} 
+                onReject={() => sendApproval(false)}
+              />
+            ))
+          )}
+        </section>
+      </div>
+
       <header className="topbar">
-        <div>
-          <h1>Jarvis 2.0</h1>
-          <p>
-            {isLoadingSession
-              ? "Restoring session..."
-              : isConnected
-              ? "Online"
-              : connectionError ?? "Connecting..."}
-          </p>
+        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+          <button className="menu-btn" title="View Chat History" onClick={() => setIsHistoryOpen(true)}>
+            <Menu size={20} />
+          </button>
+          <div>
+            <h1>J.A.R.V.I.S</h1>
+            <p>
+              {isLoadingSession
+                ? "Restoring session..."
+                : isConnected
+                ? "Online"
+                : connectionError ?? "Connecting..."}
+            </p>
+          </div>
         </div>
         <nav className="actions" aria-label="Application actions">
           <button type="button" title="View Jarvis Memory" onClick={() => setIsMemoryOpen(true)}>
@@ -245,128 +353,124 @@ export function App() {
         </nav>
       </header>
 
-      <section className="chat-panel" ref={chatPanelRef} aria-label="Conversation">
+      {/* F17 UI: Focus View (Only the latest exchange) */}
+      <div className="focus-view">
         {isLoadingSession ? (
           <div className="session-loading">Restoring today's session...</div>
         ) : (
-          allMessages.map((message) => (
-            <article key={message.id} className={`message ${message.role}`}>
-              <div className="message-role">
-                {message.role === "assistant" ? "Jarvis" : "You"}
-              </div>
-              <div className="message-content">
-                {message.image && (
-                  <img src={message.image} alt="User attachment" className="message-image" />
-                )}
-                {message.approval_data && (
-                  <ApprovalCard
-                    data={message.approval_data}
-                    onApprove={() => sendApproval(true)}
-                    onReject={() => sendApproval(false)}
-                  />
-                )}
-
-                {message.code_result && <CodeBlock result={message.code_result} />}
-                {message.content && (
-                  <ReactMarkdown
-                    components={{
-                      code({ node, inline, className, children, ...props }: any) {
-                        const match = /language-(\w+)/.exec(className || "");
-                        return !inline && match ? (
-                          <SyntaxHighlighter
-                            style={oneDark}
-                            language={match[1]}
-                            PreTag="div"
-                            {...props}
-                          >
-                            {String(children).replace(/\n$/, "")}
-                          </SyntaxHighlighter>
-                        ) : (
-                          <code className={className} {...props}>{children}</code>
-                        );
-                      },
-                    }}
-                  >
-                    {message.content}
-                  </ReactMarkdown>
-                )}
-              </div>
-            </article>
-          ))
+          <>
+            {lastUserMsg && (
+              <RenderMessage 
+                message={lastUserMsg} 
+                onApprove={(editedCode) => sendApproval(true, editedCode)} 
+                onReject={() => sendApproval(false)}
+              />
+            )}
+            {lastAssistantMsg && lastAssistantMsg.id !== lastUserMsg?.id && (
+              <RenderMessage 
+                message={lastAssistantMsg} 
+                onApprove={(editedCode) => sendApproval(true, editedCode)} 
+                onReject={() => sendApproval(false)}
+              />
+            )}
+          </>
         )}
-      </section>
+      </div>
 
-      {researchProgress && (
-        <div className="research-progress-card">
-          <div className="progress-icon">
-            <svg className="spinner" viewBox="0 0 24 24" width="20" height="20">
-              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" fill="none" opacity="0.2"/>
-              <path d="M12 2 A10 10 0 0 1 22 12" stroke="currentColor" strokeWidth="3" fill="none"/>
-            </svg>
-          </div>
-          <div className="progress-text">
-            <span className="progress-label">Deep Research Active</span>
-            <span className="progress-message">{researchProgress}</span>
-          </div>
-        </div>
-      )}
+
+      <HudStatusBar orbState={finalOrbState} researchProgress={researchProgress} />
 
       <form className="input-bar" onSubmit={handleSubmit}>
-        <input 
-          type="file" 
-          ref={fileInputRef} 
-          onChange={handleFileSelect} 
-          accept="image/*" 
-          style={{ display: 'none' }} 
+        {/* Hidden input for Images */}
+        <input
+          type="file"
+          ref={fileInputRef}
+          onChange={handleFileSelect}
+          accept="image/*"
+          style={{ display: "none" }}
+        />
+        
+        {/* Hidden input for Data Files (CSV, JSON, etc.) - ADD THIS REF AT TOP OF FILE */}
+        <input
+          type="file"
+          ref={csvFileInputRef}
+          onChange={handleFileUpload}
+          accept=".csv,.json,.txt,.xlsx"
+          style={{ display: "none" }}
         />
 
+        {/* Image Preview */}
         {pendingImage && (
           <div className="image-preview-container">
             <img src={pendingImage} alt="Pending upload" className="image-preview" />
-            <button 
-              type="button" 
-              className="remove-image-btn" 
-              onClick={() => setPendingImage(null)}
-              title="Remove image"
-            >
+            <button type="button" className="remove-image-btn" onClick={() => setPendingImage(null)} title="Remove image">
+              <X size={14} />
+            </button>
+          </div>
+        )}
+
+        {/* File Preview Chip */}
+        {uploadedFile && (
+          <div className="image-preview-container" style={{ background: "rgba(83, 224, 244, 0.1)", borderColor: "rgba(83, 224, 244, 0.3)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 12px", color: "#8ce9f7", fontSize: "13px" }}>
+              <Paperclip size={14} />
+              {uploadedFile}
+            </div>
+            <button type="button" className="remove-image-btn" onClick={() => setUploadedFile(null)} title="Remove file">
               <X size={14} />
             </button>
           </div>
         )}
 
         <div className="input-row">
-          <button 
-            type="button" 
-            title="Attach image"
+          <button
+            type="button"
+            title="Attach Image"
             onClick={() => fileInputRef.current?.click()}
             className="attach-btn"
           >
             <ImageIcon size={18} />
           </button>
-
-          {/* F16: Vapi Voice Call Button */}
+          
           <button 
-            type="button"
-            title={isVapiActive ? "End Voice Call" : "Start Voice Call"}
-            onClick={toggleVoiceCall}
-            className={`voice-btn ${isVapiActive ? 'active' : ''}`}
+            type="button" 
+            title="Attach Data File (CSV, JSON, TXT)"
+            onClick={() => csvFileInputRef.current?.click()}
+            className="attach-btn"
           >
-            {isVapiActive ? <MicOff size={18} /> : <Mic size={18} />}
+            <Paperclip size={18} />
+          </button>
+
+          <button
+            type="button"
+            title={
+              voiceError ??
+              (isVoiceActive
+                ? `End Voice Session (${voicePhase})`
+                : isVoiceBusy
+                  ? "Voice is processing..."
+                  : "Start Jarvis Voice")
+            }
+            onClick={toggleVoiceCall}
+            className={`voice-btn ${isVoiceActive ? "active" : ""}`}
+            disabled={!isConnected}
+          >
+            {isVoiceActive ? <MicOff size={18} /> : <Mic size={18} />}
           </button>
 
           <input
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onPaste={handlePaste}
-            placeholder="Ask Jarvis anything... (Paste or drop an image)"
+            placeholder="Ask Jarvis anything... (Paste image or attach file)"
             aria-label="Message"
             disabled={!isConnected || isLoadingSession}
             autoComplete="off"
           />
-          <button
-            type="submit"
-            title="Send"
-            disabled={!isConnected || isLoadingSession || (!draft.trim() && !pendingImage)}
+          <button 
+            type="submit" 
+            title="Send" 
+            disabled={!isConnected || isLoadingSession || (!draft.trim() && !pendingImage && !uploadedFile)}
           >
             <Send size={16} />
           </button>

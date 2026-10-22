@@ -1,11 +1,13 @@
 import os
 import logging
 from contextlib import AsyncExitStack
+from config import get_settings
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from langchain_mcp_adapters.tools import load_mcp_tools
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 MCP_SERVERS = {
     "filesystem": StdioServerParameters(
@@ -20,6 +22,10 @@ class MCPManager:
         self.tools = []
 
     async def initialize(self) -> list:
+        if not settings.enable_mcp_filesystem:
+            logger.info("[MCP] Filesystem MCP disabled by ENABLE_MCP_FILESYSTEM.")
+            return []
+
         os.makedirs("sandbox", exist_ok=True)
         for name, params in MCP_SERVERS.items():
             try:

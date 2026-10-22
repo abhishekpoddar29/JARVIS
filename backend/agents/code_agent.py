@@ -5,6 +5,7 @@ import base64
 import json
 import os
 import re
+import uuid 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,7 +24,7 @@ settings = get_settings()
 SANDBOX_TIMEOUT = 30          # seconds per execution
 MAX_RETRIES = 1               # retry once on error
 MAX_OUTPUT_CHARS = 8000       # cap stdout/stderr to keep responses sane
-EXPORTS_DIR = Path(__file__).resolve().parents[2] / "exports"
+EXPORTS_DIR = Path(__file__).resolve().parents[1] / "exports"
 
 # Packages pre-installed in E2B sandbox (no install needed)
 PREINSTALLED_PACKAGES = {
@@ -129,20 +130,18 @@ class CodeAgent:
 
 
     def __init__(self) -> None:
-        if not settings.e2b_api_key:
-            raise RuntimeError("E2B_API_KEY not configured")
-
-        # E2B v1.0 SDK automatically reads the E2B_API_KEY environment variable
-        os.environ["E2B_API_KEY"] = settings.e2b_api_key
+        if settings.e2b_api_key:
+            # E2B v1.0 SDK automatically reads the E2B_API_KEY environment variable.
+            os.environ["E2B_API_KEY"] = settings.e2b_api_key
 
         self._ensure_exports_dir()
 
     # ── Public API ─────────────────────────────────────────────────────────────
-
     async def execute(
         self,
         task: str,
         retry_on_error: bool = True,
+        file_ref: str = None,  # <-- ADDED: Accept the uploaded file reference
     ) -> CodeExecutionResult:
         """
         Full pipeline: generate code -> detect packages -> execute -> capture -> retry if needed.
@@ -152,21 +151,27 @@ class CodeAgent:
         code = ""
 
         try:
+            if not settings.enable_code_execution:
+                raise RuntimeError("Code execution is disabled by ENABLE_CODE_EXECUTION.")
+            if not settings.e2b_api_key:
+                raise RuntimeError("E2B_API_KEY not configured")
+
             # Step 1: Generate code
             code = await self._generate_code(task)
 
             # Step 2: Detect non-standard packages
             packages = self._detect_packages(code)
 
-            # Step 3: Execute
-            result = await self._run_in_sandbox(code, packages)
+            # Step 3: Execute (pass file_ref)
+            result = await self._run_in_sandbox(code, packages, file_ref)
             result.code = code
 
             # Step 4: Retry once if failed
             if not result.success and retry_on_error and result.stderr:
                 print(f"[CodeAgent] Retrying after error: {result.stderr[:200]}")
                 fixed_code = await self._generate_code(task, error_context=result.stderr, failed_code=code)
-                result = await self._run_in_sandbox(fixed_code, packages)
+                # Pass file_ref on retry as well
+                result = await self._run_in_sandbox(fixed_code, packages, file_ref)
                 result.code = fixed_code
                 result.retried = True
 
@@ -222,7 +227,7 @@ class CodeAgent:
                     user_message=user_message,
                     system_instruction=system_prompt,
                     temperature=0.2,
-                    max_output_tokens=2048,
+                    max_output_tokens=8192,
                 ),
             )
             print(f"[CODE GEN] Raw length: {len(reply.text)} chars")
@@ -242,7 +247,10 @@ class CodeAgent:
             "numpy", "pandas", "matplotlib", "requests", "seaborn", 
             "scipy", "scikit-learn", "sklearn", "tensorflow", "torch",
             "beautifulsoup4", "bs4", "yfinance", "pillow", "PIL",
-            "openpyxl", "xlsxwriter", "faker", "pyspark"
+            "openpyxl", "xlsxwriter", "faker", "pyspark",
+            "fpdf", "fpdf2", "reportlab",
+            "plotly", "kaleido", "bokeh", "dash",
+            "pptx"  # <-- ADDED THIS
         }
         
         mapping = {
@@ -250,8 +258,12 @@ class CodeAgent:
             "sklearn": "scikit-learn",
             "PIL": "pillow",
             "bs4": "beautifulsoup4",
-            "yaml": "pyyaml"
+            "yaml": "pyyaml",
+            "fpdf": "fpdf2",
+            "pptx": "python-pptx"  # <-- ADDED THIS MAPPING
         }
+        
+        # ... rest of the method remains exactly the same ...
         
         found_packages = set()
         
@@ -278,12 +290,13 @@ class CodeAgent:
             matches = re.findall(r'^\s*(?:import|from)\s+([\w.]+)', code, re.MULTILINE)
             return [m.split('.')[0] for m in matches if m.split('.')[0] in third_party_packages]
 
-# ── Step 3: Sandbox execution ────────────────────────────────────────────
+    # ── Step 3: Sandbox execution ────────────────────────────────────────────
 
     async def _run_in_sandbox(
         self,
         code: str,
         packages: list[str],
+        file_ref: str = None  # <-- FIX: Added file_ref parameter
     ) -> CodeExecutionResult:
         """Execute code in E2B async sandbox, capture stdout/stderr/files/images."""
         
@@ -292,11 +305,24 @@ class CodeAgent:
             # E2B v1.0 uses AsyncSandbox.create() 
             sandbox = await AsyncSandbox.create()
 
+            # F14: If a file was uploaded, send it to the sandbox
+            if file_ref:
+                local_file_path = Path("uploads") / file_ref
+                if local_file_path.exists():
+                    print(f"[SANDBOX] Uploading {file_ref} to sandbox...")
+                    file_bytes = local_file_path.read_bytes()
+                    # Write the file to the sandbox's /home/user/ directory
+                    await sandbox.files.write(f"/home/user/{file_ref}", file_bytes)
+                else:
+                    return CodeExecutionResult(
+                        success=False, code="", stdout="", stderr="",
+                        exit_code=-1, error=f"Uploaded file not found: {file_ref}"
+                    )
+
             # Install extra packages if needed
             if packages:
                 install_cmd = f"pip install --quiet {' '.join(packages)}"
                 print(f"[SANDBOX] Installing: {packages}")
-                # v1.0 uses sandbox.commands.run
                 install_proc = await sandbox.commands.run(
                     install_cmd,
                     timeout=SANDBOX_TIMEOUT,
@@ -309,7 +335,6 @@ class CodeAgent:
             print(f"[SANDBOX] Code written ({len(code)} chars)")
 
             # Execute
-            # v1.0 uses sandbox.commands.run
             process = await sandbox.commands.run(
                 "python /home/user/script.py",
                 timeout=SANDBOX_TIMEOUT,
@@ -325,41 +350,60 @@ class CodeAgent:
                 print(f"[SANDBOX] Stderr: {stderr[:200]}...")
 
             # Collect artifacts
+            import uuid
             images: list[str] = []
             files: list[CodeArtifact] = []
 
-            try:
-                entries = await sandbox.files.list("/home/user")
-                for entry in entries:
-                    name = entry.name
-                    if name == "script.py" or name.startswith("."):
-                        continue
-                    if getattr(entry,"is_dir",False):
-                        continue
+            run_id = datetime.now(UTC).strftime("%H%M%S") + "_" + uuid.uuid4().hex[:4]
+            run_export_dir = EXPORTS_DIR / run_id
+            run_export_dir.mkdir(parents=True, exist_ok=True)
 
-                    sandbox_path = f"/home/user/{name}"
-                    
-                    # E2B v1.0 requires format='bytes' for binary file reading
-                    content = await sandbox.files.read(sandbox_path, format="bytes")
-                    size = len(content)
+            async def _scan_and_download(path: str):
+                """Recursively scans the sandbox and downloads files, skipping hidden system files."""
+                try:
+                    entries = await sandbox.files.list(path)
+                    for entry in entries:
+                        # FIX 1: Skip hidden files and folders (.bashrc, .cache, etc.)
+                        if entry.name.startswith('.'):
+                            continue
+                            
+                        full_path = f"{path.rstrip('/')}/{entry.name}"
+                        if entry.name == "script.py":
+                            continue
 
-                    if name.endswith((".png", ".jpg", ".jpeg")):
-                        b64 = base64.b64encode(content).decode("utf-8")
-                        images.append(b64)
-                        print(f"[ARTIFACT] Image: {name} ({size} bytes)")
-                    else:
-                        local_path = self._save_to_exports(name, content)
-                        files.append(CodeArtifact(
-                            name=name,
-                            path=sandbox_path,
-                            local_path=str(local_path),
-                            content_type=self._detect_content_type(name),
-                            size_bytes=size,
-                        ))
-                        print(f"[ARTIFACT] File: {name} ({size} bytes) -> {local_path}")
+                        try:
+                            # Try to read as a file
+                            content = await sandbox.files.read(full_path, format="bytes")
+                            size = len(content)
 
-            except Exception as exc:
-                print(f"[ARTIFACT] Scan failed: {exc}")
+                            if entry.name.endswith((".png", ".jpg", ".jpeg")):
+                                b64 = base64.b64encode(content).decode("utf-8")
+                                images.append(b64)
+                                print(f"[ARTIFACT] Image: {entry.name} ({size} bytes)")
+                            else:
+                                local_path = run_export_dir / entry.name
+                                local_path.write_bytes(content)
+                                
+                                relative_path = local_path.relative_to(EXPORTS_DIR).as_posix()
+                                
+                                files.append(CodeArtifact(
+                                    name=entry.name,
+                                    path=full_path,
+                                    local_path=relative_path, 
+                                    content_type=self._detect_content_type(entry.name),
+                                    size_bytes=size,
+                                ))
+                                print(f"[ARTIFACT] File: {entry.name} ({size} bytes) -> {local_path}")
+
+                        except Exception:
+                            # FIX 2: If reading fails, it's a directory. Recurse into it.
+                            await _scan_and_download(full_path)
+                            
+                except Exception as e:
+                    print(f"[ARTIFACT] Scan error at {path}: {e}")
+
+            # Start recursive scan
+            await _scan_and_download("/home/user")
 
             return CodeExecutionResult(
                 success=exit_code == 0,
@@ -383,7 +427,7 @@ class CodeAgent:
             )
             
         finally:
-            # ALWAYS kill the sandbox to prevent zombie VMs (v1.0 uses kill)
+            # ALWAYS kill the sandbox to prevent zombie VMs
             if sandbox:
                 try:
                     await sandbox.kill()

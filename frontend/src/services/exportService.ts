@@ -1,6 +1,9 @@
 // frontend/src/services/exportService.ts
 
-const API_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000";
+import {
+  API_URL,
+  jarvisFetch,
+} from "./apiClient";
 
 export interface ExportResult {
   ok: boolean;
@@ -10,7 +13,7 @@ export interface ExportResult {
 
 export async function exportConversation(): Promise<ExportResult> {
   try {
-    const res = await fetch(`${API_URL}/api/export`, { method: "POST" });
+    const res = await jarvisFetch(`${API_URL}/api/export`, { method: "POST" });
 
     if (!res.ok) {
       return { ok: false, error: `Export failed: ${res.status}` };

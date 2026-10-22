@@ -1,3 +1,4 @@
+'''
 from __future__ import annotations
 
 import asyncio
@@ -15,6 +16,7 @@ from langchain_community.utilities import GoogleSerperAPIWrapper
 
 from agents.gemini_client import GeminiClientError, generate_reply
 from config import get_settings
+from security.safe_url import validate_public_http_url
 
 settings = get_settings()
 
@@ -88,7 +90,7 @@ class ResearchContext:
     created_at: str
 
 
-# ── Lightweight HTML text extractor ───────────────────────────────────────────
+# ── Lightweight HTML text & code extractor ───────────────────────────────────
 
 class _TextExtractor(HTMLParser):
     SKIP_TAGS = {"script", "style", "nav", "footer", "header", "aside", "noscript"}
@@ -112,17 +114,47 @@ class _TextExtractor(HTMLParser):
             if text:
                 self.chunks.append(text)
 
-def _extract_text_from_html(html: str) -> str:
+def _extract_text_and_code(html: str) -> str:
+    """
+    Extracts visible text AND code snippets from <pre>/<code> tags.
+    This ensures the Tech Lead gets actual HTML/CSS/JS examples to learn from.
+    """
+    # 1. Extract code blocks using regex (before stripping tags)
+    code_matches = re.findall(r'<(?:pre|code)[^>]*>(.*?)</(?:pre|code)>', html, re.DOTALL | re.IGNORECASE)
+    
+    def _clean_html_tags(text):
+        # Remove inner HTML tags
+        text = re.sub(r'<[^>]+>', '', text)
+        # Decode basic HTML entities
+        text = text.replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&').replace('&quot;', '"')
+        return text.strip()
+
+    code_blocks = [_clean_html_tags(m) for m in code_matches if _clean_html_tags(m)]
+    
+    # 2. Extract normal visible text (ignoring scripts/styles)
     parser = _TextExtractor()
     try:
         parser.feed(html)
     except Exception:
         pass
-    raw = " ".join(parser.chunks)
-    raw = re.sub(r"\s+", " ", raw).strip()
-    return raw
+    raw_text = " ".join(parser.chunks)
+    raw_text = re.sub(r"\s+", " ", raw_text).strip()
+    
+    # 3. Combine them
+    if code_blocks:
+        code_section = "\n\n--- EXTRACTED CODE EXAMPLES ---\n"
+        for i, block in enumerate(code_blocks[:5]): # Limit to 5 blocks to save context
+            code_section += f"\n```code\n{block}\n```\n"
+        return raw_text + code_section
+    
+    return raw_text
 
 def _should_skip(url: str) -> bool:
+    try:
+        validate_public_http_url(url)
+    except Exception:
+        return True
+
     for domain in _SKIP_DOMAINS:
         if domain in url:
             return True
@@ -143,6 +175,7 @@ Queries should cover:
 - Key players / companies / people (current as of 2026)
 - Data, statistics, funding (latest figures)
 - Criticism, risks, controversies
+- UI/UX patterns, design systems, and code examples (if applicable)
 
 Respond ONLY with a JSON array of strings. No preamble, no markdown fences.
 Example: ["query one 2026", "query two latest", "query three current"]
@@ -182,6 +215,7 @@ Markdown. Use these sections:
 ## Overview
 ## Key Facts
 ## Recent Developments
+## Code & Design Patterns (if any code blocks were provided in the sources, include them here verbatim)
 ## Sources
 
 STRICT GROUNDING RULES — NO EXCEPTIONS:
@@ -189,6 +223,7 @@ STRICT GROUNDING RULES — NO EXCEPTIONS:
 - If the source content does not explicitly state a fact, write "Insufficient data."
 - NEVER use your training data to fill gaps.
 - If sources contradict each other, create a sub-section under Key Facts called "Conflicting Reports".
+- If the source content includes ```code``` blocks, you MUST preserve them exactly as written.
 
 Cite sources inline as [Source N](url).
 """
@@ -202,6 +237,7 @@ You are a senior research analyst. Write a comprehensive research report
 ## Recent Developments (last 30 days)
 ## Key Players / Companies / People
 ## Data & Statistics
+## Code & Design Architecture (if any code blocks were provided in the sources, include them here verbatim)
 ## Strategic Analysis
 ## Risks & Challenges
 ## Future Outlook
@@ -213,6 +249,7 @@ STRICT GROUNDING RULES — NO EXCEPTIONS:
 - NEVER use training knowledge to fill gaps — not for executives, funding, dates, or model names.
 - If sources contradict each other (e.g., different valuation numbers, conflicting timelines), you MUST create a subsection called "## Conflicting Reports" and explain both sides.
 - When in doubt, omit rather than guess.
+- If the source content includes ```code``` blocks, you MUST preserve them exactly as written so the engineering team can use them.
 
 Cite sources inline as [Source N](url).
 """
@@ -228,6 +265,7 @@ Now answer the follow-up question using prior context AND new search results.
 STRICT GROUNDING RULES:
 - Only state facts present in the provided source content or prior context.
 - Write "Insufficient data" if sources don't cover something.
+- If the source content includes ```code``` blocks, you MUST preserve them exactly as written.
 
 Write in Markdown. Cite sources as [Source N](url).
 """
@@ -510,7 +548,8 @@ class ResearchAgent:
                     .read()
                     .decode("utf-8", errors="replace"),
                 )
-                text = _extract_text_from_html(html)
+                # FIX: Use the new text+code extractor
+                text = _extract_text_and_code(html)
                 result.full_content = text[:MAX_CONTENT_CHARS]
             except Exception:
                 result.full_content = ""
@@ -697,3 +736,4 @@ def context_from_dict(d: dict[str, Any]) -> ResearchContext:
         sources=d["sources"],
         created_at=d["created_at"],
     )
+    '''

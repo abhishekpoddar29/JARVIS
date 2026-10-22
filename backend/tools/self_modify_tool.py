@@ -5,8 +5,10 @@ from typing import Any
 
 from tools.base import BaseTool, ToolResult
 from tools.git_manager import git_manager
+from config import get_settings
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 class SelfModifyTool(BaseTool):
     name: str = "self_modify_tool"
@@ -16,7 +18,24 @@ class SelfModifyTool(BaseTool):
         "Requires user approval to activate."
     )
 
-    async def run(self, filename: str, code: str) -> ToolResult:
+    async def run(self, filename: str, code: str, **kwargs) -> ToolResult:
+        if not settings.enable_self_modify:
+            return ToolResult(
+                ok=False,
+                content="Self-modification is disabled by ENABLE_SELF_MODIFY.",
+            )
+
+        # kwargs safely catches 'mode' and 'draft' during resume execution
+        
+        # F17 FIX: If mode is 'execute', don't trigger another interrupt!
+        mode = kwargs.get("mode", "draft")
+        if mode == "execute":
+            return ToolResult(
+                ok=True,
+                content=f"Executing {filename}...",
+                data={} # Empty data so tool_node proceeds to load the tool
+            )
+
         # F17 Safety: Only allow editing the tools directory
         if not filename.endswith(".py"):
             return ToolResult(ok=False, content="Filename must end with .py")
@@ -48,8 +67,10 @@ class SelfModifyTool(BaseTool):
                 data={
                     "action_type": "self_modify",
                     "branch_name": branch_name,
-                    "filename": filename,
-                    "code": code
+                    "draft": {
+                        "filename": filename,
+                        "code": code
+                    }
                 }
             )
         except Exception as e:
